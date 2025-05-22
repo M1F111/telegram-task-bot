@@ -36,8 +36,11 @@ async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         tasks = data.get(folder, [])
-        message = f"📁 {folder.capitalize()}:
-" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)) if tasks else "No tasks."
+        if tasks:
+            message = f"📁 {folder.capitalize()}:
+" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks))
+        else:
+            message = "No tasks."
         await update.message.reply_text(message)
     else:
         task = " ".join(context.args)
