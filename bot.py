@@ -3,10 +3,10 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ==== НАСТРОЙКИ ====
-TOKEN = '821886191'
+TOKEN = 'ВАШ_ТОКЕН_ОТ_BOTFATHER'
 ALLOWED_USERS = [821886191]
 DATA_FILE = 'data.json'
-FOLDERS = ['работа', 'дом', 'музыка']
+FOLDERS = ['work', 'home', 'music']
 
 # ==== ХРАНИЛИЩЕ ====
 def load_data():
@@ -26,26 +26,27 @@ data = load_data()
 async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USERS:
-        await update.message.reply_text("⛔ Доступ запрещён.")
+        await update.message.reply_text("⛔ Access denied.")
         return
 
     folder = update.message.text.replace('/', '').lower()
     if folder not in FOLDERS:
-        await update.message.reply_text("❓ Неизвестная папка.")
+        await update.message.reply_text("❓ Unknown folder.")
         return
 
     if not context.args:
         tasks = data.get(folder, [])
-        message = f"📁 {folder.capitalize()}:\n" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)) if tasks else "Задач нет."
+        message = f"📁 {folder.capitalize()}:
+" + "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)) if tasks else "No tasks."
         await update.message.reply_text(message)
     else:
         task = " ".join(context.args)
         data[folder].append(task)
         save_data(data)
-        await update.message.reply_text(f"✅ Добавлено в {folder}: {task}")
+        await update.message.reply_text(f"✅ Added to {folder}: {task}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Используй /работа /дом /музыка + текст задачи.")
+    await update.message.reply_text("Hi! Use /work /home /music + your task.")
 
 # ==== ЗАПУСК ====
 def main():
