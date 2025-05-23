@@ -39,6 +39,11 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ====== Обработка сообщений ======
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
+    text = update.message.text.strip()
+
+    if text == "/home":
+        return await list_home(update, context)
+
     folder = context.user_data.get('current_folder')
     if not folder:
         return await update.message.reply_text("Сначала нажмите /start и выберите папку.")
@@ -48,7 +53,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data[user_id] = {f: [] for f in FOLDERS}
 
     if folder == 'work':
-        task_text = update.message.text.strip()
+        task_text = text
         data[user_id][folder].append({"text": task_text, "done": False})
         save_data(data)
         await update.message.reply_text("📝 Задача добавлена")
@@ -83,7 +88,7 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "✅" if task['done'] else "❌"
         text = f"{i+1}. {status} {task['text']}"
         buttons = [
-            InlineKeyboardButton("✅" if not task['done'] else "↩️", callback_data=f"toggle_work_{i}")
+            InlineKeyboardButton("✅ Завершить", callback_data=f"remove_work_{i}")
         ]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([buttons]))
 
@@ -108,32 +113,36 @@ async def list_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([buttons]))
 
-# ====== Обработка кнопки toggle ======
+# ====== Обработка кнопок toggle/remove ======
 async def toggle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = load_data()
 
-    if 'toggle_work_' in query.data:
-        folder = 'work'
-        index = int(query.data.replace('toggle_work_', ''))
-    elif 'toggle_home_' in query.data:
+    if 'toggle_home_' in query.data:
         folder = 'home'
         index = int(query.data.replace('toggle_home_', ''))
-    else:
-        return
+        items = data.get(user_id, {}).get(folder, [])
+        if 0 <= index < len(items):
+            items[index]['done'] = not items[index]['done']
+            save_data(data)
+            await query.answer("Статус обновлён ✅")
+            text = items[index].get('text', '')
+            msg = f"{index+1}. {'✅' if items[index]['done'] else '❌'} {text}"
+            if items[index].get('photo'):
+                await query.edit_message_caption(caption=msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if items[index]['done'] else "✅", callback_data=query.data)]]))
+            else:
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if items[index]['done'] else "✅", callback_data=query.data)]]))
 
-    tasks = data.get(user_id, {}).get(folder, [])
-    if 0 <= index < len(tasks):
-        tasks[index]['done'] = not tasks[index]['done']
-        save_data(data)
-        await query.answer("Статус обновлён ✅")
-        text = tasks[index].get('text', '')
-        msg = f"{index+1}. {'✅' if tasks[index]['done'] else '❌'} {text}"
-        if folder == 'home' and tasks[index].get('photo'):
-            await query.edit_message_caption(caption=msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if tasks[index]['done'] else "✅", callback_data=query.data)]]))
-        else:
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if tasks[index]['done'] else "✅", callback_data=query.data)]]))
+    elif 'remove_work_' in query.data:
+        folder = 'work'
+        index = int(query.data.replace('remove_work_', ''))
+        items = data.get(user_id, {}).get(folder, [])
+        if 0 <= index < len(items):
+            removed = items.pop(index)
+            save_data(data)
+            await query.answer("Задача удалена ✅")
+            await query.edit_message_text(f"❎ {removed['text']} (удалено)")
 
 # ====== /music — воспроизведение ======
 async def play_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -155,7 +164,7 @@ def main():
     app.add_handler(CommandHandler("tasks", list_tasks))
     app.add_handler(CommandHandler("home", list_home))
     app.add_handler(CallbackQueryHandler(folder_callback, pattern="^folder_"))
-    app.add_handler(CallbackQueryHandler(toggle_task, pattern="^toggle_"))
+    app.add_handler(CallbackQueryHandler(toggle_task, pattern="^(toggle_|remove_).*"))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.AUDIO, handle_message))
     app.run_polling()
 
