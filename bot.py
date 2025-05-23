@@ -26,7 +26,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🟩 Home", callback_data='open_home')],
         [InlineKeyboardButton("🟦 Music", callback_data='open_music')]
     ]
-    await update.message.reply_text("Привет! Выберите папку:", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.effective_message.reply_text("Привет! Выберите папку:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # ====== Кнопки-папки и вложенные ======
 async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -38,7 +38,7 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [
             [InlineKeyboardButton("📌 Задачи", callback_data='work_tasks')],
             [InlineKeyboardButton("📂 Все", callback_data='tasks')],
-            [InlineKeyboardButton("⬅️ Выйти", callback_data='back_home')]
+            [InlineKeyboardButton("⬅️ Выйти", callback_data='start_menu')]
         ]
         await query.edit_message_text("📁 Папка WORK:", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -47,29 +47,27 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📌 Задачи", callback_data='home_tasks')],
             [InlineKeyboardButton("⭐ Избранное", callback_data='home_fav')],
             [InlineKeyboardButton("🎵 Музыка", callback_data='home_music')],
-            [InlineKeyboardButton("⬅️ Выйти", callback_data='back_home')]
+            [InlineKeyboardButton("⬅️ Выйти", callback_data='start_menu')]
         ]
         await query.edit_message_text("📁 Папка HOME:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif action == 'open_music':
         await play_music(update, context)
 
-    elif action == 'back_home':
+    elif action == 'start_menu':
         await start(update, context)
 
     elif action == 'tasks':
         await list_tasks(query, context)
 
     elif action == 'home_tasks':
-        context.user_data['current_folder'] = 'home'
-        await query.edit_message_text("Папка HOME активна. Отправьте задачу, фото или текст.")
+        await list_home(query, context, filter_done=False)
 
     elif action == 'home_fav':
-        await list_home(query, context)
+        await list_home(query, context, filter_done=True)
 
     elif action == 'home_music':
-        context.user_data['current_folder'] = 'music'
-        await query.edit_message_text("Папка МУЗЫКА активна. Отправьте трек.")
+        await play_music(query, context, inline=True)
 
     elif action == 'work_tasks':
         context.user_data['current_folder'] = 'work'
@@ -125,15 +123,17 @@ async def list_tasks(query, context):
         await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup([buttons]))
 
 # ====== Home отображение ======
-async def list_home(query, context):
+async def list_home(query, context, filter_done=None):
     user_id = str(query.from_user.id)
     data = load_data()
     items = data.get(user_id, {}).get('home', [])
-    if not items:
-        await query.edit_message_text("Папка Home пуста.")
+    filtered = [x for x in items if (filter_done is None or x.get('done') == filter_done)]
+
+    if not filtered:
+        await query.edit_message_text("Нет подходящих записей в Home.")
         return
 
-    for i, item in enumerate(items):
+    for i, item in enumerate(filtered):
         status = "✅" if item.get('done') else "❌"
         text = item.get('text', '')
         msg = f"{i+1}. {status} {text}"
@@ -175,22 +175,21 @@ async def toggle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Удалено")
 
 # ====== Музыка ======
-async def play_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+async def play_music(source, context, inline=False):
+    user_id = str(source.effective_user.id)
     data = load_data()
     music = data.get(user_id, {}).get('music', [])
     if not music:
-        await update.message.reply_text("Плейлист пуст.")
+        await source.message.reply_text("Плейлист пуст.") if not inline else await source.edit_message_text("Плейлист пуст.")
         return
-    await update.message.reply_text("🎧 Ваш плейлист:")
+    await source.message.reply_text("🎧 Ваш плейлист:") if not inline else await source.edit_message_text("🎧 Ваш плейлист:")
     for track_id in music:
-        await update.message.reply_audio(track_id)
+        await source.message.reply_audio(track_id) if not inline else await source.message.reply_audio(track_id)
 
 # ====== ЗАПУСК ======
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("music", play_music))
     app.add_handler(CallbackQueryHandler(folder_callback))
     app.add_handler(CallbackQueryHandler(toggle_task, pattern="^(toggle_|remove_).*"))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.AUDIO, handle_message))
