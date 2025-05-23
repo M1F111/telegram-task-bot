@@ -54,7 +54,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📝 Задача добавлена")
 
     elif folder == 'home':
-        entry = {"text": update.message.text or '', "photo": None}
+        entry = {"text": update.message.text or '', "photo": None, "done": False}
         if update.message.photo:
             entry["photo"] = update.message.photo[-1].file_id
         data[user_id][folder].append(entry)
@@ -83,25 +83,57 @@ async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "✅" if task['done'] else "❌"
         text = f"{i+1}. {status} {task['text']}"
         buttons = [
-            InlineKeyboardButton("✅" if not task['done'] else "↩️", callback_data=f"toggle_{i}")
+            InlineKeyboardButton("✅" if not task['done'] else "↩️", callback_data=f"toggle_work_{i}")
         ]
         await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup([buttons]))
+
+# ====== Показать список HOME ======
+async def list_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    data = load_data()
+    items = data.get(user_id, {}).get('home', [])
+    if not items:
+        await update.message.reply_text("Папка Home пуста.")
+        return
+
+    for i, item in enumerate(items):
+        status = "✅" if item.get('done') else "❌"
+        text = item.get('text', '')
+        msg = f"{i+1}. {status} {text}"
+        buttons = [
+            InlineKeyboardButton("✅" if not item.get('done') else "↩️", callback_data=f"toggle_home_{i}")
+        ]
+        if item.get("photo"):
+            await update.message.reply_photo(item["photo"], caption=msg, reply_markup=InlineKeyboardMarkup([buttons]))
+        else:
+            await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([buttons]))
 
 # ====== Обработка кнопки toggle ======
 async def toggle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = str(query.from_user.id)
     data = load_data()
-    tasks = data.get(user_id, {}).get('work', [])
 
-    index = int(query.data.replace('toggle_', ''))
+    if 'toggle_work_' in query.data:
+        folder = 'work'
+        index = int(query.data.replace('toggle_work_', ''))
+    elif 'toggle_home_' in query.data:
+        folder = 'home'
+        index = int(query.data.replace('toggle_home_', ''))
+    else:
+        return
+
+    tasks = data.get(user_id, {}).get(folder, [])
     if 0 <= index < len(tasks):
         tasks[index]['done'] = not tasks[index]['done']
         save_data(data)
         await query.answer("Статус обновлён ✅")
-        await query.edit_message_text(
-            f"{index+1}. {'✅' if tasks[index]['done'] else '❌'} {tasks[index]['text']}"
-        )
+        text = tasks[index].get('text', '')
+        msg = f"{index+1}. {'✅' if tasks[index]['done'] else '❌'} {text}"
+        if folder == 'home' and tasks[index].get('photo'):
+            await query.edit_message_caption(caption=msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if tasks[index]['done'] else "✅", callback_data=query.data)]]))
+        else:
+            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if tasks[index]['done'] else "✅", callback_data=query.data)]]))
 
 # ====== /music — воспроизведение ======
 async def play_music(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,6 +153,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("music", play_music))
     app.add_handler(CommandHandler("tasks", list_tasks))
+    app.add_handler(CommandHandler("home", list_home))
     app.add_handler(CallbackQueryHandler(folder_callback, pattern="^folder_"))
     app.add_handler(CallbackQueryHandler(toggle_task, pattern="^toggle_"))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.AUDIO, handle_message))
