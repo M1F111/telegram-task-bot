@@ -1,13 +1,12 @@
 import json
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaAudio
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = '7790911787:AAH5jo6iNqb6bXo2cfklLqSKfaLIEOQVxqo'
 DATA_FILE = 'data.json'
-
 FOLDERS = ['work', 'home', 'music']
 
-# ====== ХРАНИЛИЩЕ ======
+# ========== ХРАНИЛИЩЕ ==========
 def load_data():
     try:
         with open(DATA_FILE, 'r') as f:
@@ -19,7 +18,7 @@ def save_data(data):
     with open(DATA_FILE, 'w') as f:
         json.dump(data, f, indent=2)
 
-# ====== /start ======
+# ========== /start ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🟥 Work", callback_data='open_work')],
@@ -28,7 +27,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.effective_message.reply_text("Привет! Выберите папку:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ====== Кнопки-папки и вложенные ======
+# ========== ОБРАБОТКА КНОПОК ==========
 async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -36,162 +35,125 @@ async def folder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == 'open_work':
         keyboard = [
-            [InlineKeyboardButton("📌 Задачи", callback_data='work_tasks')],
-            [InlineKeyboardButton("📂 Все", callback_data='tasks')],
-            [InlineKeyboardButton("⬅️ Выйти", callback_data='start_menu')]
+            [InlineKeyboardButton("📌 Задачи", callback_data='work_active')],
+            [InlineKeyboardButton("📂 Все", callback_data='work_all')],
+            [InlineKeyboardButton("⬅️ Выйти", callback_data='back')]
         ]
         await query.edit_message_text("📁 Папка WORK:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif action == 'open_home':
         keyboard = [
-            [InlineKeyboardButton("📌 Задачи", callback_data='home_tasks')],
-            [InlineKeyboardButton("⭐ Избранное", callback_data='home_fav')],
+            [InlineKeyboardButton("📌 Задачи", callback_data='home_active')],
+            [InlineKeyboardButton("⭐ Избранное", callback_data='home_done')],
             [InlineKeyboardButton("🎵 Музыка", callback_data='home_music')],
-            [InlineKeyboardButton("⬅️ Выйти", callback_data='start_menu')]
+            [InlineKeyboardButton("⬅️ Выйти", callback_data='back')]
         ]
         await query.edit_message_text("📁 Папка HOME:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    elif action == 'open_music':
-        await play_music(update, context)
+    elif action == 'open_music' or action == 'home_music':
+        await query.edit_message_text("Папка MUSIC активна. Отправьте аудио.")
+        context.user_data['current_folder'] = 'music'
 
-    elif action == 'start_menu':
+    elif action == 'back':
         await start(update, context)
 
-    elif action == 'tasks':
-        await list_tasks(query, context)
+    elif action == 'work_active':
+        await show_tasks(update, context, folder='work', active_only=True)
 
-    elif action == 'home_tasks':
-        await list_home(query, context, filter_done=False)
+    elif action == 'work_all':
+        await show_tasks(update, context, folder='work', active_only=False)
 
-    elif action == 'home_fav':
-        await list_home(query, context, filter_done=True)
+    elif action == 'home_active':
+        await show_tasks(update, context, folder='home', active_only=True)
 
-    elif action == 'home_music':
-        await play_music(query, context, inline=True)
+    elif action == 'home_done':
+        await show_tasks(update, context, folder='home', active_only=False, done_only=True)
 
-    elif action == 'work_tasks':
-        context.user_data['current_folder'] = 'work'
-        await query.edit_message_text("Папка WORK активна. Отправьте задачу.")
+# ========== ПОКАЗ СПИСКА ==========
+async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE, folder, active_only=False, done_only=False):
+    query = update.callback_query
+    user_id = str(query.from_user.id)
+    data = load_data()
+    items = data.get(user_id, {}).get(folder, [])
 
-# ====== Обработка сообщений ======
+    result = []
+    for i, item in enumerate(items):
+        if folder == 'music':
+            continue
+        if done_only and not item.get('done'): continue
+        if active_only and item.get('done'): continue
+        result.append((i, item))
+
+    if not result:
+        await query.edit_message_text("Список пуст.")
+        return
+
+    for i, item in result:
+        text = item.get('text', '')
+        status = '✅' if item.get('done') else '❌'
+        label = f"{status} {text}"
+        if folder == 'work':
+            buttons = [InlineKeyboardButton("✅ Завершить", callback_data=f'delete_{folder}_{i}')]
+        else:
+            buttons = [InlineKeyboardButton("↩️" if item['done'] else "✅", callback_data=f'toggle_{folder}_{i}')]
+        await query.message.reply_text(label, reply_markup=InlineKeyboardMarkup([buttons]))
+
+# ========== СООБЩЕНИЯ ==========
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
-    text = update.message.text.strip()
     folder = context.user_data.get('current_folder')
-
     if not folder:
-        return await update.message.reply_text("Сначала нажмите /start и выберите папку.")
+        return await update.message.reply_text("Выберите папку через /start")
 
     data = load_data()
     if user_id not in data:
         data[user_id] = {f: [] for f in FOLDERS}
 
-    if folder == 'work':
-        data[user_id][folder].append({"text": text, "done": False})
-        await update.message.reply_text("📝 Задача добавлена")
-
-    elif folder == 'home':
-        entry = {"text": text or '', "photo": None, "done": False}
-        if update.message.photo:
-            entry["photo"] = update.message.photo[-1].file_id
-        data[user_id][folder].append(entry)
-        await update.message.reply_text("✅ Сохранено в важное")
-
-    elif folder == 'music':
+    if folder == 'music':
         if update.message.audio:
-            file_id = update.message.audio.file_id
-            data[user_id][folder].append(file_id)
-            await update.message.reply_text("🎵 Трек добавлен в плейлист")
+            data[user_id][folder].append(update.message.audio.file_id)
+            await update.message.reply_text("🎵 Трек добавлен")
         else:
-            await update.message.reply_text("Пришлите именно аудиофайл")
+            await update.message.reply_text("Отправьте аудио")
+    else:
+        item = {"text": update.message.text, "done": False}
+        if update.message.photo:
+            item["photo"] = update.message.photo[-1].file_id
+        data[user_id][folder].append(item)
+        await update.message.reply_text("✅ Добавлено")
 
     save_data(data)
 
-# ====== Показать задачи Work ======
-async def list_tasks(query, context):
-    user_id = str(query.from_user.id)
-    data = load_data()
-    tasks = data.get(user_id, {}).get('work', [])
-    if not tasks:
-        await query.edit_message_text("Список задач пуст.")
-        return
-
-    for i, task in enumerate(tasks):
-        status = "✅" if task['done'] else "❌"
-        text = f"{i+1}. {status} {task['text']}"
-        buttons = [InlineKeyboardButton("✅ Завершить", callback_data=f"remove_work_{i}")]
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup([buttons]))
-
-# ====== Home отображение ======
-async def list_home(query, context, filter_done=None):
-    user_id = str(query.from_user.id)
-    data = load_data()
-    items = data.get(user_id, {}).get('home', [])
-    filtered = [x for x in items if (filter_done is None or x.get('done') == filter_done)]
-
-    if not filtered:
-        await query.edit_message_text("Нет подходящих записей в Home.")
-        return
-
-    for i, item in enumerate(filtered):
-        status = "✅" if item.get('done') else "❌"
-        text = item.get('text', '')
-        msg = f"{i+1}. {status} {text}"
-        buttons = [InlineKeyboardButton("✅" if not item.get('done') else "↩️", callback_data=f"toggle_home_{i}")]
-        if item.get("photo"):
-            await query.message.reply_photo(item["photo"], caption=msg, reply_markup=InlineKeyboardMarkup([buttons]))
-        else:
-            await query.message.reply_text(msg, reply_markup=InlineKeyboardMarkup([buttons]))
-
-# ====== Тогглы/Удаление ======
-async def toggle_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ========== КНОПКИ: toggle/remove ==========
+async def toggle_or_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     user_id = str(query.from_user.id)
     data = load_data()
 
-    if 'toggle_home_' in query.data:
-        folder = 'home'
-        index = int(query.data.replace('toggle_home_', ''))
-        items = data.get(user_id, {}).get(folder, [])
-        if 0 <= index < len(items):
-            items[index]['done'] = not items[index]['done']
-            save_data(data)
-            text = items[index].get('text', '')
-            msg = f"{index+1}. {'✅' if items[index]['done'] else '❌'} {text}"
-            if items[index].get('photo'):
-                await query.edit_message_caption(caption=msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if items[index]['done'] else "✅", callback_data=query.data)]]))
-            else:
-                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️" if items[index]['done'] else "✅", callback_data=query.data)]]))
-            await query.answer("Статус обновлён")
+    parts = query.data.split('_')
+    action, folder, index = parts[0], parts[1], int(parts[2])
+    items = data.get(user_id, {}).get(folder, [])
 
-    elif 'remove_work_' in query.data:
-        folder = 'work'
-        index = int(query.data.replace('remove_work_', ''))
-        items = data.get(user_id, {}).get(folder, [])
-        if 0 <= index < len(items):
-            removed = items.pop(index)
-            save_data(data)
-            await query.edit_message_text(f"❎ {removed['text']} (удалено)")
-            await query.answer("Удалено")
+    if not (0 <= index < len(items)):
+        return await query.edit_message_text("❌ Не найдено")
 
-# ====== Музыка ======
-async def play_music(source, context, inline=False):
-    user_id = str(source.effective_user.id)
-    data = load_data()
-    music = data.get(user_id, {}).get('music', [])
-    if not music:
-        await source.message.reply_text("Плейлист пуст.") if not inline else await source.edit_message_text("Плейлист пуст.")
-        return
-    await source.message.reply_text("🎧 Ваш плейлист:") if not inline else await source.edit_message_text("🎧 Ваш плейлист:")
-    for track_id in music:
-        await source.message.reply_audio(track_id) if not inline else await source.message.reply_audio(track_id)
+    if action == 'toggle':
+        items[index]['done'] = not items[index]['done']
+        save_data(data)
+        await query.edit_message_text(f"{'✅' if items[index]['done'] else '❌'} {items[index]['text']}")
 
-# ====== ЗАПУСК ======
+    elif action == 'delete':
+        deleted = items.pop(index)
+        save_data(data)
+        await query.edit_message_text(f"❌ {deleted['text']} (удалено)")
+
+# ========== СТАРТ ==========
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(folder_callback))
-    app.add_handler(CallbackQueryHandler(toggle_task, pattern="^(toggle_|remove_).*"))
+    app.add_handler(CallbackQueryHandler(folder_callback, pattern="^(open_|home_|work_|back|tasks)$"))
+    app.add_handler(CallbackQueryHandler(toggle_or_delete, pattern="^(toggle|delete)_"))
     app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO | filters.AUDIO, handle_message))
     app.run_polling()
 
