@@ -37,7 +37,7 @@ async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         tasks = data.get(folder, [])
         if tasks:
-            message = f"📁 {folder.capitalize()}:
+            message = f"📁 {folder.capitalize()}:"
 " + "
 ".join(f"{i+1}. {t}" for i, t in enumerate(tasks))
         else:
