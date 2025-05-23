@@ -3,8 +3,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # ==== НАСТРОЙКИ ====
-TOKEN = 'ВАШ_ТОКЕН_ОТ_BOTFATHER'
-ALLOWED_USERS = [821886191]
+TOKEN = '7790911787:AAH5jo6iNqb6bXo2cfklLqSKfaLIEOQVxqo'
+ALLOWED_USERS = [821886191]  # замените на свои user_id
 DATA_FILE = 'data.json'
 FOLDERS = ['work', 'home', 'music']
 
@@ -22,7 +22,7 @@ def save_data(data):
 
 data = load_data()
 
-# ==== ОБРАБОТЧИКИ ====
+# ==== ОБРАБОТЧИК ====
 async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ALLOWED_USERS:
@@ -37,9 +37,8 @@ async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         tasks = data.get(folder, [])
         if tasks:
-            message = f"📁 {folder.capitalize()}:"
-" + "
-".join(f"{i+1}. {t}" for i, t in enumerate(tasks))
+            task_lines = "\n".join([f"{i+1}. {t}" for i, t in enumerate(tasks)])
+            message = f"📁 {folder.capitalize()}:\n{task_lines}"
         else:
             message = "No tasks."
         await update.message.reply_text(message)
@@ -49,6 +48,7 @@ async def handle_folder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save_data(data)
         await update.message.reply_text(f"✅ Added to {folder}: {task}")
 
+# ==== СТАРТ ====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hi! Use /work /home /music + your task.")
 
